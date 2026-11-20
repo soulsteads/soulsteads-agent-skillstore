@@ -5,6 +5,9 @@ skill across projects or harnesses, see exactly what was approved, and choose
 when to update. Run it locally or serve a shared registry. Neither Agent Home
 nor a model account is required.
 
+Just want backups? [Tracking-only mode](docs/usage.md#tracking-only-mode)
+keeps a private history of your skills without a registry or review workflow.
+
 [Quickstart](#quickstart) · [Operator guide](docs/usage.md) · [Tested harnesses](docs/support.md#native-discovery)
 
 **Source preview:** Tested on Linux. macOS qualification is pending; Windows
@@ -94,6 +97,7 @@ Only the active copy is installed in the skill root.
   Hermes, OpenClaw, OpenCode, or Pi. Use explicit `--target` for a standalone
   Soulsteads Harness or another operator-configured skill root.
 - [Configure the stdio MCP server](docs/usage.md#mcp) in a compatible harness.
+- [Connect over Streamable HTTP](docs/usage.md#connect-directly-over-streamable-http) for authenticated, read-only catalog access.
   Skillstore does not edit native configuration or grant execution permissions.
 - [Connect Hermes to a shared registry](docs/usage.md#hermes-with-a-remote-registry-and-local-backups)
   and enable private skills-only backups on the agent host.

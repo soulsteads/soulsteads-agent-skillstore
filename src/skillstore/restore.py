@@ -127,6 +127,10 @@ def _write_staging(archive, members, output):
 
 def restore_hermes(source: str, sha256: str, output: str) -> dict:
     """Verify an archive and restore its skills into a new directory, never merging."""
+    return _restore_archive(source, sha256, output)
+
+
+def _restore_archive(source: str, sha256: str, output: str, *, private_source=False) -> dict:
     backup._absolute_components(source, 'archive')
     backup._absolute_components(output, 'recovery output')
     if not re.fullmatch(r'[0-9a-fA-F]{64}', sha256):
@@ -134,6 +138,8 @@ def restore_hermes(source: str, sha256: str, output: str) -> dict:
     parent, name = source.rsplit('/', 1)
     parent_fd = backup._open_absolute_directory(parent, 'archive parent')
     try:
+        if private_source:
+            backup._private_directory(parent_fd)
         fd = os.open(name, backup._FILE_FLAGS, dir_fd=parent_fd)
         with os.fdopen(fd, 'rb') as raw:
             original = os.fstat(raw.fileno())
@@ -160,6 +166,9 @@ def restore_hermes(source: str, sha256: str, output: str) -> dict:
                     with tarfile.open(fileobj=_TarReader(tar_data), mode='r:', errorlevel=2) as archive:
                         members, files = _inventory(archive, expanded)
                         _require_tar_end(tar_data, archive.offset, expanded)
+                        if private_source:
+                            backup._require_current_directory(parent, parent_fd)
+                            backup._private_directory(parent_fd)
                         _write_staging(archive, members, output)
                 except (EOFError, gzip.BadGzipFile, tarfile.TarError) as exc:
                     raise ValidationFailed('invalid or truncated skills archive') from exc
