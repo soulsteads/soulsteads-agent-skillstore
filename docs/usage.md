@@ -63,6 +63,54 @@ to the path of the installed `skillstore` executable and pass the arguments
 in its native configuration. Use absolute paths for local stores and targets,
 and pass remote tokens through a private environment rather than arguments.
 
+### Connect directly over Streamable HTTP
+
+Run a dedicated, read-only MCP listener on the registry host. This is a native
+MCP endpoint; the client does not need a local `skillstore` subprocess to
+search and inspect reviewed releases.
+
+```sh
+skillstore --store ./registry --kind agent token catalog-agent --token-file ./catalog-agent.token
+skillstore --store ./registry serve-mcp --port 8766
+```
+
+The listener binds to `127.0.0.1` and requires a valid registry bearer token
+on every request, including tool discovery. It does not serve `/v1/rpc`.
+For another machine, put it behind a trusted, access-restricted HTTPS reverse
+proxy. Route `/mcp` to `http://127.0.0.1:8766/mcp`, set the upstream `Host`
+header to `127.0.0.1:8766`, and preserve `Authorization`, `Origin` (if sent),
+`Accept`, and `MCP-Protocol-Version`. Do not strip `Origin` to enable browser
+requests: this endpoint is for native clients and rejects requests with an
+`Origin` header. Disable caching and apply request limits at the proxy. Do
+not expose the raw HTTP port or proxy the separate registry RPC as part of
+this setup. Use a distinct non-reviewer token per client; registry tokens
+are shared credentials if you also run the registry RPC server.
+
+In Hermes, put the token in the profile's private `.env` as
+`SKILLSTORE_MCP_TOKEN` and add this entry to `config.yaml`:
+
+```yaml
+mcp_servers:
+  skillstore_catalog:
+    url: https://skills.example.org/mcp
+    headers:
+      Authorization: "Bearer ${SKILLSTORE_MCP_TOKEN}"
+```
+
+Use `hermes mcp test skillstore_catalog` to check discovery, then call
+`skillstore_search` and `skillstore_inspect` through the connection. Other
+harnesses need native Streamable HTTP and support for bearer headers. This
+endpoint returns JSON responses without SSE streams, browser CORS, or OAuth
+discovery. Use a trusted certificate on the proxy. Revoke the client with
+`skillstore --store ./registry revoke catalog-agent`; new requests using
+that actor's token will be denied without restarting the listener.
+
+The network endpoint does not expose drafts, submissions, approvals,
+installs, local targets, or private tracking snapshots. Use stdio on the
+agent's host for installation, contributions, and local backups. With
+network MCP, omitting `version` from `skillstore_inspect` returns the latest
+reviewed release; it does not list draft or withdrawn versions.
+
 ### Hermes with a remote registry and local backups
 
 On the **agent host**, install `skillstore` and select the active Hermes
@@ -133,6 +181,47 @@ with `--private-read` if drafts must not be visible anonymously.
 With a directory store, the local process is still trusted. MCP records a
 declared `agent` identity (`--actor`, default `mcp-contributor`); it isn't a
 security boundary against a process that can write the store directory.
+
+## Tracking-only mode
+
+Use `skillstore tracking` when you want private history and recovery, not a
+shared catalog. Tracking does not use a registry, reviewers, Git, or the
+network. It can save unpublished skills, local edits, and supporting files.
+It never publishes snapshots or makes them eligible for a registry install.
+Publishing to a registry still requires review.
+
+Make a dedicated owner-only snapshot directory and a separate private parent
+for recoveries. Use absolute paths and point `--skills-root` at the **skills
+directory itself**, not the containing profile, home, or project. For Hermes
+that is `$HERMES_HOME/skills`; for other harnesses use the actual skills
+directory, for example a project's `.agents/skills`. Stop writers to the
+skills tree while backing it up.
+
+```sh
+mkdir -m 700 "$HOME/skill-snapshots" "$HOME/skill-recoveries"
+skillstore tracking --directory "$HOME/skill-snapshots" backup --skills-root "$HERMES_HOME/skills"
+skillstore tracking --directory "$HOME/skill-snapshots" list
+# Set SNAPSHOT to the snapshot ID printed by backup or list.
+skillstore tracking --directory "$HOME/skill-snapshots" restore "$SNAPSHOT" \
+  --output "$HOME/skill-recoveries/recovered-skills"
+```
+
+Each backup makes a new owner-only archive. Keep one snapshot directory per
+skills tree so their histories stay separate. `list` shows IDs, timestamps,
+recorded digests and archive sizes, newest first; it does not verify archive
+contents. Restore checks the archive against the SHA-256 in the selected ID
+and writes a new `recovered-skills/skills` tree. It does not merge into a live
+profile or overwrite an existing directory. Inspect the recovered files before
+moving them into use. Preserve the original snapshot ID if you copy an archive
+to another private location; keep its filename unchanged.
+
+Only ordinary files and directories in the selected tree are backed up.
+Legacy `.skillstore` state at the root is excluded and unsafe entries such as
+symlinks are refused. If you put secrets inside your skills tree, the archives
+can contain them. Backups are not encrypted or uploaded by Skillstore; don't
+put them in a public or synced directory. There is no automatic schedule or
+deletion of old snapshots. If a disk error leaves an incomplete recovery
+directory, inspect it and retry using a different output path.
 
 ## Track skills from Git
 

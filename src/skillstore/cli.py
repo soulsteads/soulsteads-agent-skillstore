@@ -67,6 +67,15 @@ def parser():
     q.add_argument("archive")
     q.add_argument("--sha256", required=True)
     q.add_argument("--output", required=True)
+    q = s.add_parser("tracking", help="keep private local skill snapshots without a registry")
+    q.add_argument("--directory", required=True, help="absolute path to an existing owner-only snapshot directory")
+    t = q.add_subparsers(dest="tracking_command", required=True)
+    b = t.add_parser("backup", help="snapshot the files in an explicit skills directory")
+    b.add_argument("--skills-root", required=True)
+    t.add_parser("list", help="list local snapshot IDs, newest first")
+    r = t.add_parser("restore", help="verify a snapshot and recover into a new directory")
+    r.add_argument("snapshot")
+    r.add_argument("--output", required=True)
     q = s.add_parser("search"); q.add_argument("query", nargs="?", default="")
     q = s.add_parser("inspect"); q.add_argument("name"); q.add_argument("--version")
     q = s.add_parser("submit"); q.add_argument("path"); q.add_argument("version"); q.add_argument("--source", required=True); q.add_argument("--revision", required=True); q.add_argument("--changelog", default="")
@@ -104,6 +113,8 @@ def parser():
     q=s.add_parser("token"); q.add_argument("name"); q.add_argument("--token-file", required=True)
     q=s.add_parser("revoke"); q.add_argument("name")
     q=s.add_parser("serve"); q.add_argument("--host", default="127.0.0.1"); q.add_argument("--port", type=int, default=8765); q.add_argument("--private-read", action="store_true")
+    q = s.add_parser("serve-mcp", help="serve the reviewed catalog via bearer-authenticated Streamable HTTP on loopback")
+    q.add_argument("--port", type=int, default=8766)
     q = target_parser(s, "mcp")
     q.add_argument("--source-root", help="opt in to contributions from an existing absolute staging directory")
     q.add_argument("--backup-dir", help="opt in to local backups into an existing private directory (named Hermes profile only)")
@@ -120,6 +131,13 @@ def execute(a):
     if c == "restore-hermes":
         from .restore import restore_hermes
         return restore_hermes(a.archive, a.sha256, a.output)
+    if c == "tracking":
+        from . import tracking
+        if a.tracking_command == "backup":
+            return tracking.create_snapshot(a.directory, a.skills_root)
+        if a.tracking_command == "list":
+            return tracking.list_snapshots(a.directory)
+        return tracking.restore_snapshot(a.directory, a.snapshot, a.output)
     if c == "mcp" and a.backup_dir is not None and (a.harness, a.scope) != ("hermes", "profile"):
         raise UsageError("--backup-dir requires --harness hermes --scope profile --root PATH")
     target = installation_target(a) if hasattr(a, "target") else None
@@ -194,6 +212,9 @@ def execute(a):
             source = ContributionSource(a.source_root)
         serve(store,target,source=source,actor=make_actor(a.actor or "mcp-contributor", "agent"),backup=backup); return None
     if not isinstance(store,LocalStore): raise UsageError("this operation requires direct local store access")
+    if c == "serve-mcp":
+        from .mcp_http import serve
+        return serve(store, a.port)
     from . import server
     if c=="serve": server.serve(str(store.root),a.host,a.port,a.private_read); return None
     if c=="token":

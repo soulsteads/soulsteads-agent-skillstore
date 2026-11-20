@@ -1,8 +1,8 @@
-"""Private, local-only backups of the ``skills`` subtree of a Hermes profile.
+"""Private, local-only backups of explicitly selected skill trees.
 
-The caller supplies an already-quiescent, explicit profile directory.  This module
-binds source and destination directories through file descriptors and archives
-only regular files and directories below ``profile_root/skills``.  It is not a
+The caller supplies a quiescent skill tree, directly or via a Hermes profile.
+This module binds source and destination directories through file descriptors and
+archives only regular files and directories in the selected tree. It is not a
 cross-machine snapshot protocol and does not attempt to make a hostile,
 same-UID source tree atomic.
 """
@@ -239,9 +239,13 @@ def _backup_hermes(profile_root: str, output: str, *, keys=None) -> dict:
     if output_path.startswith(source_path + "/") or output_path == source_path:
         raise ValueError("output must not be within profile_root")
 
-    destination_path = output_path.rsplit("/", 1)[0] or "/"
-    output_name = output_path.rsplit("/", 1)[1]
-    source_fd = _open_absolute_directory(source_path, "profile_root")
+    destination_path, output_name = output_path.rsplit("/", 1)
+    return _archive_skills(source_path, destination_path, output_name=output_name, subtree="skills", keys=keys)
+
+
+def _archive_skills(source_path, destination_path, *, output_name=None, name_for_digest=None, subtree=None, keys=None):
+    """Publish once, with either a fixed basename or an internal digest-based name."""
+    source_fd = _open_absolute_directory(source_path, "profile_root" if subtree else "skills root")
     destination_fd = -1
     skills_fd = -1
     output_fd = -1
@@ -250,22 +254,26 @@ def _backup_hermes(profile_root: str, output: str, *, keys=None) -> dict:
         _private_directory(destination_fd)
 
 
-        skills_before = os.stat("skills", dir_fd=source_fd, follow_symlinks=False)
+        def source_stat():
+            return os.stat(subtree, dir_fd=source_fd, follow_symlinks=False) if subtree else os.fstat(source_fd)
+
+        skills_before = source_stat()
         if not stat.S_ISDIR(skills_before.st_mode):
-            raise ValueError("profile_root/skills must be an existing directory")
-        skills_fd = os.open("skills", _DIR_FLAGS, dir_fd=source_fd)
+            raise ValueError("skills root must be an existing directory")
+        skills_fd = os.open(subtree, _DIR_FLAGS, dir_fd=source_fd) if subtree else os.dup(source_fd)
         skills_opened = os.fstat(skills_fd)
         if not _same_object(skills_before, skills_opened):
-            raise ValueError("profile_root/skills changed while opening")
+            raise ValueError("skills root changed while opening")
         if keys is not None and keys != (_directory_key(source_fd), _directory_key(destination_fd), _directory_key(skills_fd)):
             raise ValueError("configured backup directories changed; check them before restarting MCP")
 
-        try:
-            os.stat(output_name, dir_fd=destination_fd, follow_symlinks=False)
-        except FileNotFoundError:
-            pass
-        else:
-            raise FileExistsError("backup output already exists")
+        if output_name is not None:
+            try:
+                os.stat(output_name, dir_fd=destination_fd, follow_symlinks=False)
+            except FileNotFoundError:
+                pass
+            else:
+                raise FileExistsError("backup output already exists")
 
         partial = f".skillstore-backup-{uuid.uuid4().hex}.partial"
         output_fd = os.open(partial, _OUTPUT_FLAGS, 0o600, dir_fd=destination_fd)
@@ -284,9 +292,12 @@ def _backup_hermes(profile_root: str, output: str, *, keys=None) -> dict:
         os.fsync(output_fd)
         written = os.fstat(output_fd)
         archive_sha256 = _sha256_from_fd(output_fd)
+        if name_for_digest is not None:
+            output_name = name_for_digest(archive_sha256)
+        assert output_name is not None
         _require_current_directory(source_path, source_fd)
-        if not _same_object(skills_opened, os.stat("skills", dir_fd=source_fd, follow_symlinks=False)):
-            raise ValueError("profile_root/skills changed while archiving")
+        if not _same_object(skills_opened, source_stat()):
+            raise ValueError("skills root changed while archiving")
         _require_current_directory(destination_path, destination_fd)
         _private_directory(destination_fd)
         if (written.st_nlink != 1 or stat.S_IMODE(written.st_mode) != 0o600 or
@@ -312,7 +323,7 @@ def _backup_hermes(profile_root: str, output: str, *, keys=None) -> dict:
             or (written.st_size, written.st_mtime_ns) != (named_output.st_size, named_output.st_mtime_ns)
         ):
             raise ValueError("output changed while archiving")
-        return {"archive": output_path, "sha256": archive_sha256, "files": budget.files}
+        return {"archive": f"{destination_path}/{output_name}", "sha256": archive_sha256, "files": budget.files}
     finally:
         if output_fd >= 0:
             os.close(output_fd)

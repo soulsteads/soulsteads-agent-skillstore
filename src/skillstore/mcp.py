@@ -1,4 +1,4 @@
-"""Line-delimited stdio MCP with optional contributions and local backups."""
+"""Shared MCP tool definitions and the local stdio adapter."""
 import json
 import sys
 from urllib.parse import urlsplit
@@ -46,6 +46,25 @@ def available_tools(source, backup=None):
             *([BACKUP_TOOL] if backup is not None else [])]
 
 
+def initialize_result(protocol_version):
+    return {"protocolVersion": protocol_version, "capabilities": {"tools": {}},
+            "serverInfo": {"name": "skillstore", "version": __version__}}
+
+
+def tool_result(data, *, error=False):
+    return {"content": [{"type": "text", "text": json.dumps(data)}], "isError": error}
+
+
+def validate_arguments(tools, name, args):
+    definition = next((t for t in tools if t["name"] == name), None)
+    if definition is None:
+        raise UsageError("unknown tool")
+    schema = definition["inputSchema"]
+    if (not isinstance(args, dict) or set(args) - set(schema["properties"])
+            or set(schema["required"]) - set(args) or any(not isinstance(v, str) for v in args.values())):
+        raise UsageError("invalid tool arguments")
+
+
 def _contribute(store, op, args, source, actor):
     name = args["name"]
     if len(name) > pkg.MAX_NAME or not pkg.NAME_RE.fullmatch(name):
@@ -74,11 +93,7 @@ def _contribute(store, op, args, source, actor):
 
 
 def call(store,target,name,args,*,source=None,actor=None,backup=None):
-    definition=next((t for t in available_tools(source,backup) if t["name"]==name),None)
-    if not definition: raise UsageError("unknown tool")
-    schema=definition["inputSchema"]
-    if not isinstance(args,dict) or set(args)-set(schema["properties"]) or set(schema["required"])-set(args) or any(not isinstance(v,str) for v in args.values()):
-        raise UsageError("invalid tool arguments")
+    validate_arguments(available_tools(source, backup), name, args)
     op=name.removeprefix("skillstore_")
     if op=="search": return store.list_skills(args.get("query"))
     if op=="inspect": return store.release(args["name"],args["version"]) if "version" in args else store.skill_info(args["name"])
@@ -99,19 +114,19 @@ def serve(store,target,*,source=None,actor=None,backup=None):
             if "id" not in request: continue
             method=request.get("method")
             if method=="initialize":
-                result={"protocolVersion":"2024-11-05","capabilities":{"tools":{}},"serverInfo":{"name":"skillstore","version":__version__}}
+                result=initialize_result("2024-11-05")
             elif method=="ping": result={}
             elif method=="tools/list": result={"tools":available_tools(source,backup)}
             elif method=="tools/call":
                 params=request.get("params",{})
                 try:
                     data=call(store,target,params.get("name"),params.get("arguments",{}),source=source,actor=actor,backup=backup)
-                    result={"content":[{"type":"text","text":json.dumps(data)}],"isError":False}
+                    result=tool_result(data)
                 except SkillstoreError as exc:
-                    result={"content":[{"type":"text","text":json.dumps(exc.to_dict())}],"isError":True}
+                    result=tool_result(exc.to_dict(), error=True)
                 except (OSError,ValueError,KeyError,TypeError) as exc:
                     data={"ok":False,"error":"io_or_data_error","message":str(exc)}
-                    result={"content":[{"type":"text","text":json.dumps(data)}],"isError":True}
+                    result=tool_result(data, error=True)
             else:
                 print(json.dumps({"jsonrpc":"2.0","id":request["id"],"error":{"code":-32601,"message":"method not found"}}),flush=True);continue
             print(json.dumps({"jsonrpc":"2.0","id":request["id"],"result":result}),flush=True)

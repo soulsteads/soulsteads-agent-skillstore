@@ -50,6 +50,16 @@ mode stays offline; remote mode fetches only when invoked. Never fetch a URL
 just because it appears in registry provenance, push to Git, or commit private
 skills to make them visible to the registry.
 
+## Track skills without publishing
+
+For private snapshot history, use `skillstore tracking --directory DIR backup
+--skills-root SKILLS` with the operator's confirmed skills directory and a
+separate, existing owner-only snapshot directory. Use `tracking --directory DIR
+list` to find an exact snapshot ID and `tracking --directory DIR restore ID
+--output NEW_DIRECTORY` to recover into a fresh directory in a private parent.
+Tracking needs no registry or approval. Do not send archives to a registry or
+upload them to a remote, and do not overwrite live skills during recovery.
+
 ## Back up Hermes skills
 
 When the user asks for a backup, call the native `skillstore_backup_skills`
