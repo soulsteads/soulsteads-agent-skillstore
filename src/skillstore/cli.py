@@ -8,7 +8,7 @@ from pathlib import Path
 from . import package as pkg
 from .errors import SkillstoreError, UsageError
 from .install import Installation
-from .remote import open_store
+from .remote import RemoteStore, open_store
 from .store import LocalStore, make_actor
 from .targets import plan_target
 
@@ -39,6 +39,19 @@ def installation_target(args):
     return Installation(plan["target"], require_external=(args.harness, args.scope) != ("codex", "project"))
 
 
+def git_source_options(parser):
+    source = parser.add_mutually_exclusive_group()
+    source.add_argument("--repo", help="absolute checkout path (or SKILLSTORE_GIT_REPO)")
+    source.add_argument("--git-remote", help="HTTPS Git URL to fetch (or SKILLSTORE_GIT_REMOTE)")
+    parser.add_argument("--revision", default="HEAD", help="full commit ID, explicit ref, or HEAD (default)")
+
+
+def git_location(args):
+    if args.repo is not None or args.git_remote is not None:
+        return args.repo, args.git_remote
+    return os.environ.get("SKILLSTORE_GIT_REPO") or None, os.environ.get("SKILLSTORE_GIT_REMOTE") or None
+
+
 def parser():
     p = argparse.ArgumentParser(prog="skillstore")
     p.add_argument("--store", default=os.environ.get("SKILLSTORE_STORE"))
@@ -47,9 +60,26 @@ def parser():
     s = p.add_subparsers(dest="command", required=True)
     q = s.add_parser("init"); q.add_argument("path"); q.add_argument("--reviewer", action="append", required=True)
     q = s.add_parser("validate"); q.add_argument("path")
+    q = s.add_parser("backup-hermes", help="write a private, local skills-only archive")
+    q.add_argument("--profile-root", required=True)
+    q.add_argument("--output", required=True)
+    q = s.add_parser("restore-hermes", help="verify and recover a backup into a new private directory")
+    q.add_argument("archive")
+    q.add_argument("--sha256", required=True)
+    q.add_argument("--output", required=True)
     q = s.add_parser("search"); q.add_argument("query", nargs="?", default="")
     q = s.add_parser("inspect"); q.add_argument("name"); q.add_argument("--version")
     q = s.add_parser("submit"); q.add_argument("path"); q.add_argument("version"); q.add_argument("--source", required=True); q.add_argument("--revision", required=True); q.add_argument("--changelog", default="")
+    q = s.add_parser("submit-git", help="submit one committed skill from a checkout or HTTPS Git remote")
+    q.add_argument("path", help="skill directory relative to the repository root")
+    q.add_argument("version")
+    git_source_options(q)
+    q.add_argument("--source", help="optional HTTPS provenance label for a checkout (or SKILLSTORE_GIT_SOURCE)")
+    q.add_argument("--changelog", default="")
+    q = s.add_parser("git-status", help="compare a Git-backed version with a selected checkout or remote revision")
+    q.add_argument("name")
+    q.add_argument("--version", required=True)
+    git_source_options(q)
     q = s.add_parser("review"); q.add_argument("name"); q.add_argument("version"); q.add_argument("decision", choices=["approve", "reject"]); q.add_argument("--note", required=True)
     q = s.add_parser("withdraw"); q.add_argument("name"); q.add_argument("version"); q.add_argument("--reason", required=True)
     q = s.add_parser("diff"); q.add_argument("name"); q.add_argument("old"); q.add_argument("new")
@@ -74,7 +104,9 @@ def parser():
     q=s.add_parser("token"); q.add_argument("name"); q.add_argument("--token-file", required=True)
     q=s.add_parser("revoke"); q.add_argument("name")
     q=s.add_parser("serve"); q.add_argument("--host", default="127.0.0.1"); q.add_argument("--port", type=int, default=8765); q.add_argument("--private-read", action="store_true")
-    target_parser(s, "mcp")
+    q = target_parser(s, "mcp")
+    q.add_argument("--source-root", help="opt in to contributions from an existing absolute staging directory")
+    q.add_argument("--backup-dir", help="opt in to local backups into an existing private directory (named Hermes profile only)")
     return p
 
 
@@ -82,6 +114,14 @@ def execute(a):
     c=a.command
     if c == "target":
         return plan_target(a.harness, a.scope, a.root)
+    if c == "backup-hermes":
+        from .backup import backup_hermes
+        return backup_hermes(a.profile_root, a.output)
+    if c == "restore-hermes":
+        from .restore import restore_hermes
+        return restore_hermes(a.archive, a.sha256, a.output)
+    if c == "mcp" and a.backup_dir is not None and (a.harness, a.scope) != ("hermes", "profile"):
+        raise UsageError("--backup-dir requires --harness hermes --scope profile --root PATH")
     target = installation_target(a) if hasattr(a, "target") else None
     actor=make_actor(a.actor, a.kind)
     if c == "init": return LocalStore.init(a.path, a.reviewer, actor).info()
@@ -100,6 +140,29 @@ def execute(a):
     if c=="search": return store.list_skills(a.query)
     if c=="inspect": return store.release(a.name,a.version) if a.version else store.skill_info(a.name)
     if c=="submit": return store.submit(pkg.pack(pkg.read_tree(a.path)),a.version,actor,{"type":"source","uri":a.source,"revision":a.revision},a.changelog)
+    if c in ("submit-git", "git-status"):
+        from .git_source import git_files
+        pkg.parse_version(a.version)
+        repo, remote = git_location(a)
+        if c == "submit-git":
+            uri = a.source
+            if uri is None and not remote:
+                uri = os.environ.get("SKILLSTORE_GIT_SOURCE") or None
+            files, source = git_files(repo, a.path, a.revision, uri, remote=remote)
+            return store.submit(pkg.pack(files), a.version, actor, source, a.changelog)
+        release = store.release(a.name, a.version)
+        previous = release["provenance"]["source"]
+        if previous.get("type") != "git" or not all(isinstance(previous.get(k), str) for k in ("uri", "path", "revision")):
+            raise UsageError("this version was not submitted from a tracked Git source")
+        if remote and remote != previous["uri"]:
+            raise UsageError("--git-remote must match the Git source recorded for this version")
+        files, source = git_files(repo, previous["path"], a.revision, None if remote else previous["uri"],
+                                  remote=remote, expected_name=a.name)
+        digest = pkg.tree_digest(files)
+        return {"name": a.name, "version": a.version, "path": source["path"],
+                "recorded_revision": previous["revision"], "revision": source["revision"],
+                "recorded_digest": release["digest"], "digest": digest,
+                "content_changed": digest != release["digest"]}
     if c=="review": return store.review(a.name,a.version,a.decision,actor,a.note)
     if c=="withdraw": return store.withdraw(a.name,a.version,actor,a.reason)
     if c=="diff": return store.diff(a.name,a.old,a.new)
@@ -115,7 +178,21 @@ def execute(a):
     if c=="audit": return store.audit()
     if c=="mcp" and target is not None:
         from .mcp import serve
-        serve(store,target); return None
+        source = None
+        backup = None
+        if a.backup_dir is not None:
+            from .backup import HermesBackup
+            backup = HermesBackup(a.root, a.backup_dir)
+            if a.source_root is not None and (
+                Path(a.source_root).is_relative_to(a.backup_dir) or Path(a.backup_dir).is_relative_to(a.source_root)
+            ):
+                raise UsageError("backup and contribution directories must not overlap")
+        if a.source_root is not None:
+            from .contribution import ContributionSource
+            if isinstance(store, RemoteStore) and not store.token:
+                raise UsageError("MCP contributions to a remote registry require SKILLSTORE_TOKEN")
+            source = ContributionSource(a.source_root)
+        serve(store,target,source=source,actor=make_actor(a.actor or "mcp-contributor", "agent"),backup=backup); return None
     if not isinstance(store,LocalStore): raise UsageError("this operation requires direct local store access")
     from . import server
     if c=="serve": server.serve(str(store.root),a.host,a.port,a.private_read); return None

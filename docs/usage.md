@@ -28,17 +28,33 @@ SKILLSTORE_TOKEN="$(cat ./agent.token)" \
 Tokens are written only to newly created mode-0600 files. Registry storage keeps
 hashes. Stop the demo server with Ctrl-C, then run
 `skillstore --store ./registry revoke agent` to revoke that actor's tokens.
-Use a protected TLS reverse
-proxy for remote clients; the built-in server supplies no TLS. Do not expose a
-registry publicly by accident. Anonymous reads are allowed unless `--private-read`
-is supplied, including inspection of pending candidates and proposals.
+
+### Connect from another machine
+
+Run `skillstore serve --private-read` bound to loopback on the registry host,
+behind an access-restricted TLS reverse proxy. Forward `POST /v1/rpc` and its
+`Authorization` header to the server. The built-in server does not supply TLS;
+do not expose its raw port to other hosts. Put only the agent's token in the
+client's private `SKILLSTORE_TOKEN` environment. Then use:
+
+```sh
+skillstore --store https://skills.example.org search
+```
+
+Use the hostname on the proxy's TLS certificate. If it is signed by a private
+CA, add that CA to the agent host's trust store or set `SSL_CERT_FILE` to an
+absolute path to a trusted PEM bundle. Do not bypass certificate checks or
+switch to plain HTTP to resolve trust errors.
+
+Omitting `--private-read` permits anonymous inspection, including pending
+candidates and proposals. Keep separate tokens for agents and reviewers.
 
 ## MCP
 
 For MCP, launch `skillstore --store PATH_OR_URL mcp --target SKILLS_DIRECTORY`
 as a stdio server using your harness's supported native configuration. It offers
-search, inspection, preview, install, rollback, uninstall, and status. It has
-no publication or review tools. The bundled [operating skill](../skills/manage-skills/SKILL.md)
+search, inspection, preview, install, rollback, uninstall, and status by default.
+The bundled [operating skill](../skills/manage-skills/SKILL.md)
 describes this workflow. Neither configuring MCP nor copying a skill changes
 native execution permissions. Start fresh harness sessions after adoption. The
 MCP server uses the same registry and target rules as the CLI. Set `command`
@@ -46,6 +62,131 @@ to the path of the installed `skillstore` executable and pass the arguments
 `--store`, `PATH_OR_URL`, `mcp`, `--target`, `SKILLS_DIRECTORY` in that order
 in its native configuration. Use absolute paths for local stores and targets,
 and pass remote tokens through a private environment rather than arguments.
+
+### Hermes with a remote registry and local backups
+
+On the **agent host**, install `skillstore` and select the active Hermes
+profile. Create an owner-only backup directory (mode `0700`) outside that
+profile. Use existing, absolute, non-symlink paths. Put the agent's registry
+token under `SKILLSTORE_TOKEN` in the profile's private `.env`, then set this
+in the profile's `config.yaml`, replacing the example paths and URL:
+
+```yaml
+mcp_servers:
+  skillstore:
+    command: /opt/skillstore/bin/skillstore
+    args:
+      - --store
+      - https://skills.example.org
+      - mcp
+      - --harness
+      - hermes
+      - --scope
+      - profile
+      - --root
+      - /path/to/hermes-profile
+      - --backup-dir
+      - /path/to/private-backups
+    env:
+      SKILLSTORE_TOKEN: "${SKILLSTORE_TOKEN}"
+```
+
+Run `hermes mcp test skillstore` in that profile to check discovery. The URL is
+the registry base URL, **not** a remote `/mcp` endpoint. The MCP process runs
+locally over stdio; it searches and downloads from the remote registry but
+installs into the agent's local skill directory.
+If the child process needs a separate private-CA bundle, list `SSL_CERT_FILE`
+under the same `env` mapping with its absolute path. Follow discovery with an
+actual search; listing MCP tools does not test registry credentials or TLS.
+
+Once configured, ask Hermes to back up its skills. The opt-in
+`skillstore_backup_hermes` tool takes no paths, saves a new archive in the
+configured directory, and returns its local path, SHA-256, and file count.
+Omit `--backup-dir` to leave the tool disabled. Backups do not contact the
+registry, even when it is configured for the other tools. If you also enable
+contributions, their staging directory must not overlap the backup directory.
+
+### Contribute a skill through MCP
+
+Add `--source-root` and an existing, absolute staging directory to the MCP
+server arguments to enable `skillstore_submit` and `skillstore_propose`. This
+works with the same stdio transport, including Hermes. Give this server a
+separate agent token when using a shared registry; configure the registry
+with `--private-read` if drafts must not be visible anonymously.
+
+1. Put a copy of the intended skill and its supporting files in a dedicated
+   staging directory, separate from your live skill root. Check its contents
+   for private material. Do not use your home, whole profile, or backup
+   directory as the source root.
+2. To submit a new version, call `skillstore_submit` with `name`, `path`,
+   `version`, `source_uri`, and `revision`. The source URI is a credential-free
+   HTTPS URL; the revision identifies the source and is recorded, not fetched.
+   To propose a change to an existing release, use `skillstore_propose` with
+   `name`, `path`, `base_version`, and `rationale`. In both cases `path` is the
+   relative directory of **one** skill, for example `writing/demo-skill`.
+   Hidden entries, symlinks, hard links, and special files are refused.
+3. Review the pending version or proposal separately. The authorized reviewer
+   uses `review` or `proposal-diff` and `decide` through the CLI. Only then
+   does the version become installable. MCP never exposes review, approval,
+   or withdrawal tools, even if it is started with a reviewer token.
+
+With a directory store, the local process is still trusted. MCP records a
+declared `agent` identity (`--actor`, default `mcp-contributor`); it isn't a
+security boundary against a process that can write the store directory.
+
+## Track skills from Git
+
+Keep each skill in a directory such as `skills/demo-skill/` with its own
+`SKILL.md`. Choose either a local checkout or a hosted Git repository. The Git
+source and the Skillstore `--store` are separate: either source can be used
+with a local or remote registry.
+
+### Local checkout (including a repo with no remote)
+
+```sh
+export SKILLSTORE_GIT_REPO=/path/to/skills-checkout
+skillstore --store REGISTRY --actor contributor submit-git skills/demo-skill 1.0.0
+skillstore --store REGISTRY git-status demo-skill --version 1.0.0
+```
+
+This mode works offline and defaults to the checkout's `HEAD`; it ignores
+uncommitted and untracked files. Use `--revision` to select a full commit ID,
+`refs/heads/...`, `refs/tags/...`, or an already fetched `refs/remotes/...`
+ref. The registry records `local:git` instead of your filesystem path. You
+can optionally record a credential-free HTTPS provenance URL with `--source`
+or `SKILLSTORE_GIT_SOURCE`; checkout mode never contacts that URL. For a
+private or SSH-only remote, clone/fetch using your usual Git credentials and
+use checkout mode with the desired local ref.
+
+### Hosted repository (direct HTTPS)
+
+No existing checkout is needed for a Git endpoint readable over HTTPS
+without credentials. Use `--git-remote` (or `SKILLSTORE_GIT_REMOTE`):
+
+```sh
+skillstore --store REGISTRY --actor contributor submit-git skills/demo-skill 1.0.0 \
+  --git-remote https://git.example.org/team/skills.git --revision refs/heads/main
+skillstore --store REGISTRY git-status demo-skill --version 1.0.0 \
+  --git-remote https://git.example.org/team/skills.git --revision refs/heads/main
+```
+
+Each invocation fetches one shallow revision into a temporary bare repo on
+the CLI host and discards it without checking anything out. Use the final
+credential-free HTTPS URL (no redirects) and, for a private CA, set
+`SSL_CERT_FILE` to an absolute path to its trusted PEM bundle. `--revision`
+defaults to the remote's `HEAD`; explicit branch and tag refs and full commit
+IDs are supported, subject to the Git server allowing the fetch. For
+`git-status`, pass the same Git URL recorded at submission. A URL returned by
+the registry is never used to initiate a fetch on its own. Set only one Git
+source environment variable at a time; an explicit `--repo` or `--git-remote`
+overrides the environment selection.
+
+In either mode, `git-status` compares both the resolved commit and the skill's
+package digest with the recorded version, and does not submit anything. To
+publish an update for review, submit the new revision as a new version. Every
+submission stays pending until independently approved. No background polling,
+Git pushes, automatic approval, or installation occurs. Keep private skill
+backups separate from version-controlled skills.
 
 ## Native targets
 
@@ -124,6 +265,76 @@ registration is deliberately retained after process loss; inspect `status` and
 end it explicitly only when its consumer is stopped.
 
 ## Recovery and backup
+
+### Back up one Hermes profile's skills
+
+You can create the same archive without MCP, a registry, or a token. The output
+parent must already exist, be owner-private, and be outside the profile. Use
+absolute paths with no symlink components:
+
+```sh
+skillstore backup-hermes --profile-root /path/to/hermes-profile \
+  --output /path/to/private-backups/hermes-skills.tar.gz
+```
+
+The mode-`0600` archive contains the configured profile's `skills/` tree,
+including locally edited skills and their supporting files. It excludes the
+rest of the profile, project skill roots, and Skillstore lifecycle state. Any
+private material stored *inside a skill* remains in the archive. No upload,
+encryption, or automatic pruning is performed. Quiesce skill writers while
+backing up; this is not an atomic snapshot. Links and special files are
+refused. Limits are 10,000 files, 20,000 total entries, 32 levels, 64 MiB per
+file and 512 MiB total input. A failed write can leave a private `.partial`
+file but never overwrites an archive.
+
+Restore a trusted archive to a **new** directory in an existing private
+parent, using the digest recorded when you made the backup:
+
+```sh
+skillstore restore-hermes /path/to/private-backups/hermes-skills.tar.gz \
+  --sha256 "$BACKUP_SHA256" --output /path/to/private-backups/recovered
+```
+
+The command validates the archive before creating `recovered/skills`. It
+restores ordinary files with owner-only permissions and preserves executable
+bits for the owner. It does not merge, execute files, or restore Skillstore
+receipts. Inspect the staged skills before moving them into a stopped,
+unmanaged or fresh Hermes profile. If a disk write fails, discard or inspect
+the incomplete staging directory and retry with a different output path.
+
+### Native Hermes backup plugin
+
+The plugin in [`plugins/skillstore-backup`](../plugins/skillstore-backup)
+works without a registry or MCP server. Install Skillstore, then copy that
+directory to `<HERMES_HOME>/plugins/skillstore-backup`. The wheel also includes
+it under `skillstore/hermes_plugins/skillstore-backup` in the installed Python
+environment. Enable it by merging these settings into the selected profile's
+`config.yaml`. Use the actual absolute path to the installed executable and
+an existing owner-only backup directory outside the profile.
+
+```yaml
+plugins:
+  enabled:
+    - skillstore-backup
+  entries:
+    skillstore-backup:
+      settings:
+        executable: /opt/skillstore/bin/skillstore
+        backup_dir: /path/to/private-backups
+        agent_backup: false
+```
+
+```sh
+hermes skillstore-backup backup
+hermes skillstore-backup restore ARCHIVE_BASENAME --sha256 "$BACKUP_SHA256"
+```
+
+The restore command creates a fresh recovery directory alongside backups; it
+never overwrites a live skill. To let the agent itself create backups, set
+`agent_backup: true` and reload the plugin. This exposes only the no-argument
+`skillstore_backup_skills` tool. Restore remains a terminal command.
+
+### Recover a managed target or registry
 
 `rollback NAME VERSION --target DIR` restores an earlier local snapshot, including
 its recorded provenance, without contacting the registry. Local edits still

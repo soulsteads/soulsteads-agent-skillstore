@@ -1,0 +1,6 @@
+name: skillstore-backup
+version: 0.1.0
+description: Private skills-only backups and staged recovery for a Hermes profile.
+author: Soulsteads
+provides_tools:
+  - skillstore_backup_skills

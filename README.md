@@ -95,6 +95,14 @@ Only the active copy is installed in the skill root.
   Soulsteads Harness or another operator-configured skill root.
 - [Configure the stdio MCP server](docs/usage.md#mcp) in a compatible harness.
   Skillstore does not edit native configuration or grant execution permissions.
+- [Connect Hermes to a shared registry](docs/usage.md#hermes-with-a-remote-registry-and-local-backups)
+  and enable private skills-only backups on the agent host.
+- [Submit skill updates through MCP](docs/usage.md#contribute-a-skill-through-mcp)
+  from an explicitly configured staging directory. Approval stays separate.
+- [Track skills from Git](docs/usage.md#track-skills-from-git) using an offline
+  checkout or a hosted HTTPS repository. Submit exact committed versions for review.
+- [Install the native Hermes backup plugin](docs/usage.md#native-hermes-backup-plugin)
+  to back up a profile's skills and restore them into a separate directory.
 - [Import into a tracked Soulsteads Agent Home](docs/usage.md#tracked-agent-homes)
   through Home's native import. Skillstore does not manage the tracked lifecycle.
 
@@ -104,4 +112,6 @@ the exact versions tested and the limits of those checks.
 
 ## License
 
-[MIT](LICENSE).
+Skillstore and its bundled `manage-skills` skill are licensed under the
+[Apache License 2.0](LICENSE). Skills distributed through the registry retain
+their own licenses.
