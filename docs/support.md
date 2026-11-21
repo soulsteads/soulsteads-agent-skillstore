@@ -96,6 +96,48 @@ server. It requires a visible control before evaluating the active skill and
 rejects an exposed metadata control. See [OpenCode discovery](opencode-discovery.md)
 for the scope and evidence.
 
+## Source-only CI and Agent Home lifecycle qualification
+
+`.github/workflows/source-qualification.yml` runs on pull requests and pushes. It
+checks out the event's immutable commit with read-only repository permission and
+without persisted checkout credentials, runs the focused package tests, then calls
+`scripts/release_gate.py` in a private runner-temporary directory on Linux. It
+publishes no packages or artifacts. This source check does **not** qualify a
+release: distributing built packages still requires the installed-artifact gate
+below on the same reviewed commit on both Linux and macOS.
+
+For the synthetic tracked-Home proof, install this Skillstore checkout and install
+Soulsteads Home from the exact public checkout at
+`31d1fc26fe210d82fd414780a4aeae78efea185f` into the same disposable Python
+environment. Manually verify that checkout with
+`git -C /path/to/soulsteads-home rev-parse HEAD` before installing; the script
+cannot verify which Home build is installed. `--home-revision` is an
+operator-supplied label only, reported as `home_revision_label`, not build
+provenance. Then run with an existing mode-0700 scratch directory:
+
+```sh
+python3 -I -B scripts/qualify_home_lifecycle.py \
+  --home-revision 31d1fc26fe210d82fd414780a4aeae78efea185f \
+  --scratch /private/scratch
+```
+
+The script uses synthetic-only packages, actors, and a disposable tracked Agent
+Home. The author and reviewer values in the receipt are synthetic fixture
+identities; approval and rejection exercise the lifecycle API, not human review
+or endorsement. Before reviewer approval, it attempts to install the existing
+pending v1, asserts a `not_reviewed` denial, and verifies that nothing was
+staged. It also checks that author self-review receives the dedicated self-review
+diagnostic, while a different synthetic reviewer can reject one proposal and
+approve another. Reviewed versions are staged outside the Home, and imports
+happen only through `soulsteads skill install`. It also checks that an existing
+skill cannot be upgraded in place and that `soulsteads revert` restores a
+previously tracked version as a new Home commit. Canonical `skills/` bytes and
+Home-maintained `.agents/skills` and `.claude/skills` aliases are compared
+byte-for-byte; that filesystem check does not prove native OpenCode discovery.
+The native discovery probe is not run by this qualification. This qualification
+does not run a model or auto-approve/curate packages. Use the maintained native
+discovery check above only when a compatible runtime is available.
+
 ## Installed-artifact gate
 
 Run this gate against the **same reviewed commit on Linux and macOS** before
