@@ -26,6 +26,8 @@ is not supported. No tagged release yet.
 
 ## Install from source
 
+Prefer Docker or Podman? See the [container deployment guide](docs/containers.md).
+
 From a checkout of the revision you want to try, with Python 3.11 or later:
 
 ```sh
