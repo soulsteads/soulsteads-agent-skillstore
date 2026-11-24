@@ -31,9 +31,14 @@ jobs:
         run: |
           # uv builds a fresh sdist and then builds the wheel from that sdist.
           uv build --python 3.12 --out-dir dist
-          uv venv --python 3.12 "$RUNNER_TEMP/release-smoke"
-          uv pip install --python "$RUNNER_TEMP/release-smoke/bin/python" dist/*.whl
-          (cd "$RUNNER_TEMP" && "$RUNNER_TEMP/release-smoke/bin/skillstore" --help > /dev/null)
+          uv venv --python 3.12 "$RUNNER_TEMP/release-smoke-wheel"
+          uv pip install --python "$RUNNER_TEMP/release-smoke-wheel/bin/python" dist/*.whl
+          (cd "$RUNNER_TEMP" && "$RUNNER_TEMP/release-smoke-wheel/bin/soulsteads-skillstore" --help > /dev/null)
+          # GitHub workflows are source-only and deliberately absent from sdists;
+          # smoke the installed sdist through its packaged console script instead.
+          uv venv --python 3.12 "$RUNNER_TEMP/release-smoke-sdist"
+          uv pip install --python "$RUNNER_TEMP/release-smoke-sdist/bin/python" dist/*.tar.gz
+          (cd "$RUNNER_TEMP" && "$RUNNER_TEMP/release-smoke-sdist/bin/soulsteads-skillstore" --help > /dev/null)
       - name: Generate and verify asset checksums
         working-directory: dist
         run: |

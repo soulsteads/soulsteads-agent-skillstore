@@ -37,6 +37,10 @@ uv tool install .
 Alternatively, run `python3 -m pip install .` in an activated virtual environment.
 No model account or harness is needed for the quickstart.
 
+The canonical command is `soulsteads-skillstore`. `skillstore` remains an
+explicit compatibility alias for existing Hermes and MCP configurations; update
+new scripts and service units to the canonical name.
+
 ## Quickstart
 
 Publish and install a sample skill, then recover it without the registry.
@@ -60,18 +64,18 @@ Read the note and write one sentence that preserves its main point.
 EOF
 
 # Create a registry, submit the package, and approve the exact version.
-skillstore init ./registry --reviewer demo-reviewer
-skillstore --store ./registry --actor demo-author submit ./demo-skill 1.0.0 \
+soulsteads-skillstore init ./registry --reviewer demo-reviewer
+soulsteads-skillstore --store ./registry --actor demo-author submit ./demo-skill 1.0.0 \
   --source https://example.org/demo-skills.git --revision quickstart-v1
-skillstore --store ./registry --actor demo-reviewer review demo-skill 1.0.0 approve \
+soulsteads-skillstore --store ./registry --actor demo-reviewer review demo-skill 1.0.0 approve \
   --note 'Reviewed the demonstration instructions'
 
 # Discover the release, preview the file changes, and install it.
-skillstore --store ./registry search demo-skill
-skillstore --store ./registry inspect demo-skill --version 1.0.0
-skillstore --store ./registry preview demo-skill --version 1.0.0 --target ./skills
-skillstore --store ./registry install demo-skill --version 1.0.0 --target ./skills
-skillstore status --target ./skills
+soulsteads-skillstore --store ./registry search demo-skill
+soulsteads-skillstore --store ./registry inspect demo-skill --version 1.0.0
+soulsteads-skillstore --store ./registry preview demo-skill --version 1.0.0 --target ./skills
+soulsteads-skillstore --store ./registry install demo-skill --version 1.0.0 --target ./skills
+soulsteads-skillstore status --target ./skills
 ```
 
 `status` now shows `demo-skill` at version `1.0.0` with a clean receipt. The
@@ -85,9 +89,9 @@ Remove the active copy, then restore it from the local snapshot. Neither command
 needs access to the registry:
 
 ```sh
-skillstore uninstall demo-skill --target ./skills
-skillstore rollback demo-skill 1.0.0 --target ./skills
-skillstore status --target ./skills
+soulsteads-skillstore uninstall demo-skill --target ./skills
+soulsteads-skillstore rollback demo-skill 1.0.0 --target ./skills
+soulsteads-skillstore status --target ./skills
 ```
 
 Keep the skill root and its sibling `.skillstore-skills` together for recovery.

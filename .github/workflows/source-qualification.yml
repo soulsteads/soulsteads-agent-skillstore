@@ -47,6 +47,8 @@ jobs:
           test "$(git rev-parse HEAD)" = "$CI_REVISION"
           "$UV_PROJECT_ENVIRONMENT/bin/python" -m pytest -q \
             tests/test_release_gate.py \
+            tests/test_package_metadata.py \
+            tests/test_service.py \
             tests/test_targets.py \
             tests/test_tracking.py \
             tests/test_lifecycle.py

@@ -22,5 +22,5 @@ USER 10001:10001
 WORKDIR /data
 STOPSIGNAL SIGINT
 EXPOSE 8765
-ENTRYPOINT ["/opt/skillstore/bin/skillstore"]
+ENTRYPOINT ["/opt/skillstore/bin/soulsteads-skillstore"]
 CMD ["--help"]
