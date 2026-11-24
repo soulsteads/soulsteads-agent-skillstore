@@ -8,6 +8,37 @@ import pytest
 
 
 GATE = Path(__file__).resolve().parents[1] / "scripts/release_gate.py"
+RELEASE_WORKFLOW = Path(__file__).resolve().parents[1] / ".github/workflows/release.yml"
+SOURCE_QUALIFICATION_WORKFLOW = Path(__file__).resolve().parents[1] / ".github/workflows/source-qualification.yml"
+
+
+def test_release_workflow_smokes_the_canonical_console_script():
+    workflow = RELEASE_WORKFLOW.read_text(encoding="utf-8")
+
+    assert 'release-smoke-wheel/bin/soulsteads-skillstore' in workflow
+    assert 'release-smoke-sdist/bin/soulsteads-skillstore' in workflow
+    assert 'dist/*.whl' in workflow
+    assert 'dist/*.tar.gz' in workflow
+    assert 'release-smoke/bin/skillstore' not in workflow
+
+
+def test_source_qualification_runs_service_and_package_metadata_tests():
+    workflow = SOURCE_QUALIFICATION_WORKFLOW.read_text(encoding="utf-8")
+
+    assert "tests/test_service.py" in workflow
+    assert "tests/test_package_metadata.py" in workflow
+
+
+def test_release_gate_allows_the_source_suite_the_ci_job_budget():
+    gate = GATE.read_text(encoding="utf-8")
+
+    assert "timeout=600" in gate
+
+
+def test_release_gate_prefers_canonical_console_script_with_compatibility_fallback():
+    gate = GATE.read_text(encoding="utf-8")
+
+    assert '("soulsteads-skillstore", "skillstore")' in gate
 
 
 def run_gate(repo, scratch, system, env=None):

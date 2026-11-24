@@ -41,7 +41,7 @@ def qualify(revision, scratch, system):
 
     def run(*args, cwd=None, capture=False, extra_env=None):
         return subprocess.run(
-            args, cwd=cwd, env={**env, **(extra_env or {})}, check=True, timeout=300,
+            args, cwd=cwd, env={**env, **(extra_env or {})}, check=True, timeout=600,
             text=True, stdout=subprocess.PIPE if capture else sys.stderr,
         ).stdout
 
@@ -82,9 +82,13 @@ def qualify(revision, scratch, system):
         prefix = root / kind
         python = install(prefix, artifact)
         run(python, "-I", "-B", "-c", INSTALLED_CHECK, prefix, cwd=root)
+        binary = next((prefix / "bin" / name for name in ("soulsteads-skillstore", "skillstore")
+                       if (prefix / "bin" / name).is_file()), None)
+        if binary is None:
+            raise RuntimeError("Installed artifact did not provide a Skillstore console script")
         result = json.loads(run(
             client, "-I", "-B", source / "scripts/qualify_release.py",
-            "--skillstore", prefix / "bin/skillstore", "--scratch", root, cwd=root, capture=True,
+            "--skillstore", binary, "--scratch", root, cwd=root, capture=True,
         ))
         if result.get("passed") is not True:
             raise RuntimeError(f"Installed {kind} smoke test did not pass")

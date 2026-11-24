@@ -53,7 +53,7 @@ locally in the running container and copy the file into a private directory
 
 ```sh
 (umask 077; mkdir "$CLIENT_DIR")
-"$engine" exec soulsteads-agent-skillstore /opt/skillstore/bin/skillstore \
+"$engine" exec soulsteads-agent-skillstore /opt/skillstore/bin/soulsteads-skillstore \
   --kind agent token catalog-client --token-file /data/client.token
 "$engine" cp soulsteads-agent-skillstore:/data/client.token "$CLIENT_DIR/client.token"
 chmod 600 "$CLIENT_DIR/client.token"

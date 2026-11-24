@@ -53,7 +53,7 @@ def git_location(args):
 
 
 def parser():
-    p = argparse.ArgumentParser(prog="skillstore")
+    p = argparse.ArgumentParser(prog="soulsteads-skillstore")
     p.add_argument("--store", default=os.environ.get("SKILLSTORE_STORE"))
     p.add_argument("--actor", default=os.environ.get("SKILLSTORE_ACTOR"))
     p.add_argument("--kind", choices=["human", "agent", "service"], default="human")
@@ -113,6 +113,15 @@ def parser():
     q=s.add_parser("token"); q.add_argument("name"); q.add_argument("--token-file", required=True)
     q=s.add_parser("revoke"); q.add_argument("name")
     q=s.add_parser("serve"); q.add_argument("--host", default="127.0.0.1"); q.add_argument("--port", type=int, default=8765); q.add_argument("--private-read", action="store_true")
+    q = s.add_parser("service", help="render or install a systemd listener unit without starting it")
+    service = q.add_subparsers(dest="service_command", required=True)
+    install_service = service.add_parser("install", help="write a new listener unit; run systemctl manually afterwards")
+    scope = install_service.add_mutually_exclusive_group()
+    scope.add_argument("--user", dest="scope", action="store_const", const="user")
+    scope.add_argument("--system", dest="scope", action="store_const", const="system")
+    install_service.set_defaults(scope="user")
+    install_service.add_argument("--run-as", metavar="USER", help="required non-root account for --system")
+    install_service.add_argument("--dry-run", action="store_true", help="print the unit without writing it")
     q = s.add_parser("serve-mcp", help="serve the reviewed catalog via bearer-authenticated Streamable HTTP on loopback")
     q.add_argument("--port", type=int, default=8766)
     q = target_parser(s, "mcp")
@@ -138,6 +147,11 @@ def execute(a):
         if a.tracking_command == "list":
             return tracking.list_snapshots(a.directory)
         return tracking.restore_snapshot(a.directory, a.snapshot, a.output)
+    if c == "service":
+        from .service import install, invoked_executable
+        plan = install(a.store, a.scope, a.run_as, str(invoked_executable(sys.argv[0])), dry_run=a.dry_run)
+        return {"path": str(plan.path), "unit": plan.unit, "scope": a.scope,
+                "dry_run": a.dry_run, "manager_activated": False}
     if c == "mcp" and a.backup_dir is not None and (a.harness, a.scope) != ("hermes", "profile"):
         raise UsageError("--backup-dir requires --harness hermes --scope profile --root PATH")
     target = installation_target(a) if hasattr(a, "target") else None

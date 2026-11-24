@@ -13,8 +13,8 @@ client-supplied identity fields. Unknown request fields are rejected. The
 example assumes you have created `./registry` using the quickstart.
 
 ```sh
-skillstore --store ./registry --kind agent token agent --token-file ./agent.token
-skillstore --store ./registry serve --host 127.0.0.1 --port 8765 --private-read
+soulsteads-skillstore --store ./registry --kind agent token agent --token-file ./agent.token
+soulsteads-skillstore --store ./registry serve --host 127.0.0.1 --port 8765 --private-read
 ```
 
 In a second terminal, from the same directory, pass the token file's contents
@@ -22,23 +22,23 @@ to this command only. Run this with shell tracing off (`set +x`):
 
 ```sh
 SKILLSTORE_TOKEN="$(cat ./agent.token)" \
-  skillstore --store http://127.0.0.1:8765 search
+  soulsteads-skillstore --store http://127.0.0.1:8765 search
 ```
 
 Tokens are written only to newly created mode-0600 files. Registry storage keeps
 hashes. Stop the demo server with Ctrl-C, then run
-`skillstore --store ./registry revoke agent` to revoke that actor's tokens.
+`soulsteads-skillstore --store ./registry revoke agent` to revoke that actor's tokens.
 
 ### Connect from another machine
 
-Run `skillstore serve --private-read` bound to loopback on the registry host,
+Run `soulsteads-skillstore serve --private-read` bound to loopback on the registry host,
 behind an access-restricted TLS reverse proxy. Forward `POST /v1/rpc` and its
 `Authorization` header to the server. The built-in server does not supply TLS;
 do not expose its raw port to other hosts. Put only the agent's token in the
 client's private `SKILLSTORE_TOKEN` environment. Then use:
 
 ```sh
-skillstore --store https://skills.example.org search
+soulsteads-skillstore --store https://skills.example.org search
 ```
 
 Use the hostname on the proxy's TLS certificate. If it is signed by a private
@@ -49,16 +49,55 @@ switch to plain HTTP to resolve trust errors.
 Omitting `--private-read` permits anonymous inspection, including pending
 candidates and proposals. Keep separate tokens for agents and reviewers.
 
+## systemd listener
+
+`service install` writes one new Linux systemd unit for the foreground registry
+listener. It always uses an explicit absolute existing `--store` directory and
+runs `serve --host 127.0.0.1 --port 8765 --private-read`. It does **not**
+initialize, open, or create a registry, put tokens or other secrets in the
+unit, run `systemctl`, or start a manager. Create and administer the registry
+separately. The installer resolves the installed canonical executable (including
+a uv symlink) and refuses an unavailable or unsafe launch target instead of
+writing a unit that cannot start.
+
+User units use `$XDG_CONFIG_HOME/systemd/user/` (or `~/.config/systemd/user/`)
+and default to `--user`. Preview first; a real install creates the final unit
+only when that name does not already exist and will not replace a file or
+symlink:
+
+```sh
+soulsteads-skillstore --store /absolute/path/to/registry service install --user --dry-run
+soulsteads-skillstore --store /absolute/path/to/registry service install --user
+systemctl --user daemon-reload
+systemctl --user enable --now soulsteads-agent-skillstore.service
+```
+
+For a system listener, use a dedicated pre-existing non-root account. The unit
+is installed under the fixed root-protected `/etc/systemd/system/` directory;
+the registry directory must already be accessible to the selected account:
+
+```sh
+sudo soulsteads-skillstore --store /var/lib/soulsteads-agent-skillstore/registry \
+  service install --system --run-as skillstore
+sudo systemctl daemon-reload
+sudo systemctl enable --now soulsteads-agent-skillstore.service
+```
+
+To stop or disable either unit, use the matching manual command
+(`systemctl --user disable --now ...` or `sudo systemctl disable --now ...`).
+The generated unit is intentionally token-free; manage registry tokens through
+the normal CLI and private files, not `Environment=` values in the unit.
+
 ## MCP
 
-For MCP, launch `skillstore --store PATH_OR_URL mcp --target SKILLS_DIRECTORY`
+For MCP, launch `soulsteads-skillstore --store PATH_OR_URL mcp --target SKILLS_DIRECTORY`
 as a stdio server using your harness's supported native configuration. It offers
 search, inspection, preview, install, rollback, uninstall, and status by default.
 The bundled [operating skill](../skills/manage-skills/SKILL.md)
 describes this workflow. Neither configuring MCP nor copying a skill changes
 native execution permissions. Start fresh harness sessions after adoption. The
 MCP server uses the same registry and target rules as the CLI. Set `command`
-to the path of the installed `skillstore` executable and pass the arguments
+to the path of the installed `soulsteads-skillstore` executable and pass the arguments
 `--store`, `PATH_OR_URL`, `mcp`, `--target`, `SKILLS_DIRECTORY` in that order
 in its native configuration. Use absolute paths for local stores and targets,
 and pass remote tokens through a private environment rather than arguments.
@@ -66,12 +105,12 @@ and pass remote tokens through a private environment rather than arguments.
 ### Connect directly over Streamable HTTP
 
 Run a dedicated, read-only MCP listener on the registry host. This is a native
-MCP endpoint; the client does not need a local `skillstore` subprocess to
+MCP endpoint; the client does not need a local `soulsteads-skillstore` subprocess to
 search and inspect reviewed releases.
 
 ```sh
-skillstore --store ./registry --kind agent token catalog-agent --token-file ./catalog-agent.token
-skillstore --store ./registry serve-mcp --port 8766
+soulsteads-skillstore --store ./registry --kind agent token catalog-agent --token-file ./catalog-agent.token
+soulsteads-skillstore --store ./registry serve-mcp --port 8766
 ```
 
 The listener binds to `127.0.0.1` and requires a valid registry bearer token
@@ -102,7 +141,7 @@ Use `hermes mcp test skillstore_catalog` to check discovery, then call
 harnesses need native Streamable HTTP and support for bearer headers. This
 endpoint returns JSON responses without SSE streams, browser CORS, or OAuth
 discovery. Use a trusted certificate on the proxy. Revoke the client with
-`skillstore --store ./registry revoke catalog-agent`; new requests using
+`soulsteads-skillstore --store ./registry revoke catalog-agent`; new requests using
 that actor's token will be denied without restarting the listener.
 
 The network endpoint does not expose drafts, submissions, approvals,
@@ -113,7 +152,7 @@ reviewed release; it does not list draft or withdrawn versions.
 
 ### Hermes with a remote registry and local backups
 
-On the **agent host**, install `skillstore` and select the active Hermes
+On the **agent host**, install `soulsteads-skillstore` and select the active Hermes
 profile. Create an owner-only backup directory (mode `0700`) outside that
 profile. Use existing, absolute, non-symlink paths. Put the agent's registry
 token under `SKILLSTORE_TOKEN` in the profile's private `.env`, then set this
@@ -122,7 +161,7 @@ in the profile's `config.yaml`, replacing the example paths and URL:
 ```yaml
 mcp_servers:
   skillstore:
-    command: /opt/skillstore/bin/skillstore
+    command: /opt/skillstore/bin/soulsteads-skillstore
     args:
       - --store
       - https://skills.example.org
@@ -184,7 +223,7 @@ security boundary against a process that can write the store directory.
 
 ## Tracking-only mode
 
-Use `skillstore tracking` when you want private history and recovery, not a
+Use `soulsteads-skillstore tracking` when you want private history and recovery, not a
 shared catalog. Tracking does not use a registry, reviewers, Git, or the
 network. It can save unpublished skills, local edits, and supporting files.
 It never publishes snapshots or makes them eligible for a registry install.
@@ -199,10 +238,10 @@ skills tree while backing it up.
 
 ```sh
 mkdir -m 700 "$HOME/skill-snapshots" "$HOME/skill-recoveries"
-skillstore tracking --directory "$HOME/skill-snapshots" backup --skills-root "$HERMES_HOME/skills"
-skillstore tracking --directory "$HOME/skill-snapshots" list
+soulsteads-skillstore tracking --directory "$HOME/skill-snapshots" backup --skills-root "$HERMES_HOME/skills"
+soulsteads-skillstore tracking --directory "$HOME/skill-snapshots" list
 # Set SNAPSHOT to the snapshot ID printed by backup or list.
-skillstore tracking --directory "$HOME/skill-snapshots" restore "$SNAPSHOT" \
+soulsteads-skillstore tracking --directory "$HOME/skill-snapshots" restore "$SNAPSHOT" \
   --output "$HOME/skill-recoveries/recovered-skills"
 ```
 
@@ -234,8 +273,8 @@ with a local or remote registry.
 
 ```sh
 export SKILLSTORE_GIT_REPO=/path/to/skills-checkout
-skillstore --store REGISTRY --actor contributor submit-git skills/demo-skill 1.0.0
-skillstore --store REGISTRY git-status demo-skill --version 1.0.0
+soulsteads-skillstore --store REGISTRY --actor contributor submit-git skills/demo-skill 1.0.0
+soulsteads-skillstore --store REGISTRY git-status demo-skill --version 1.0.0
 ```
 
 This mode works offline and defaults to the checkout's `HEAD`; it ignores
@@ -253,9 +292,9 @@ No existing checkout is needed for a Git endpoint readable over HTTPS
 without credentials. Use `--git-remote` (or `SKILLSTORE_GIT_REMOTE`):
 
 ```sh
-skillstore --store REGISTRY --actor contributor submit-git skills/demo-skill 1.0.0 \
+soulsteads-skillstore --store REGISTRY --actor contributor submit-git skills/demo-skill 1.0.0 \
   --git-remote https://git.example.org/team/skills.git --revision refs/heads/main
-skillstore --store REGISTRY git-status demo-skill --version 1.0.0 \
+soulsteads-skillstore --store REGISTRY git-status demo-skill --version 1.0.0 \
   --git-remote https://git.example.org/team/skills.git --revision refs/heads/main
 ```
 
@@ -286,8 +325,8 @@ components. Planning leaves native configuration untouched and works without
 profile lookup, store access, or directory creation.
 
 ```sh
-skillstore target --harness codex --scope project --root .
-skillstore --store ./registry install demo-skill --version 1.0.0 \
+soulsteads-skillstore target --harness codex --scope project --root .
+soulsteads-skillstore --store ./registry install demo-skill --version 1.0.0 \
   --harness codex --scope project --root .
 ```
 
@@ -321,7 +360,7 @@ Do not use generic target management to bypass ownership in a tracked Agent
 Home. Stage the reviewed package outside the Home and import its skill directory.
 
 ```sh
-skillstore --store ./registry install my-skill --version 1.0.0 --target STAGING
+soulsteads-skillstore --store ./registry install my-skill --version 1.0.0 --target STAGING
 soulsteads skill install AGENT STAGING/my-skill
 ```
 
@@ -362,7 +401,7 @@ parent must already exist, be owner-private, and be outside the profile. Use
 absolute paths with no symlink components:
 
 ```sh
-skillstore backup-hermes --profile-root /path/to/hermes-profile \
+soulsteads-skillstore backup-hermes --profile-root /path/to/hermes-profile \
   --output /path/to/private-backups/hermes-skills.tar.gz
 ```
 
@@ -380,7 +419,7 @@ Restore a trusted archive to a **new** directory in an existing private
 parent, using the digest recorded when you made the backup:
 
 ```sh
-skillstore restore-hermes /path/to/private-backups/hermes-skills.tar.gz \
+soulsteads-skillstore restore-hermes /path/to/private-backups/hermes-skills.tar.gz \
   --sha256 "$BACKUP_SHA256" --output /path/to/private-backups/recovered
 ```
 
@@ -408,7 +447,7 @@ plugins:
   entries:
     skillstore-backup:
       settings:
-        executable: /opt/skillstore/bin/skillstore
+        executable: /opt/skillstore/bin/soulsteads-skillstore
         backup_dir: /path/to/private-backups
         agent_backup: false
 ```
@@ -450,7 +489,7 @@ before copying the registry, the entire target, and its sibling state directory
 (`.skillstore-<target basename>`) to a private backup. For a legacy target include
 its internal `.skillstore`. Restore the corresponding directories together to
 empty locations, preserving their relative names and private state permissions.
-Run `skillstore --store RESTORED verify` and `skillstore status --target RESTORED_TARGET`
+Run `soulsteads-skillstore --store RESTORED verify` and `soulsteads-skillstore status --target RESTORED_TARGET`
 and inspect sessions before resuming. State and skills must be on the same
 filesystem. Hash chains detect accidental edits; they are not signatures or
 protection against an administrator replacing the whole store.
@@ -460,7 +499,7 @@ protection against an administrator replacing the whole store.
 Stop the harness and all Skillstore clients (including long-running MCP
 servers). Back up the target first. Inspect with explicit `status --target DIR`
 to finish any pending transaction, then end old session registrations only
-after their consumers stop. Run `skillstore migrate-state --target DIR`, then
+after their consumers stop. Run `soulsteads-skillstore migrate-state --target DIR`, then
 check `status` again. The command moves state and its lock as one directory on
 the same filesystem; it leaves the installed skills and retained receipt bytes
 unchanged. If it reports an I/O failure, inspect and retry the same command;
