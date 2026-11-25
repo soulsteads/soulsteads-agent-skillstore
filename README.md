@@ -41,6 +41,25 @@ The canonical command is `soulsteads-skillstore`. `skillstore` remains an
 explicit compatibility alias for existing Hermes and MCP configurations; update
 new scripts and service units to the canonical name.
 
+### Debian package
+
+For Debian 13 or later, build a binary package from a clean checkout with
+`uv` and `dpkg-deb` available. This does not install the package or activate a
+service:
+
+```sh
+scripts/build-deb.sh --out-dir ./dist/debian
+```
+
+The command builds the wheel from source, installs its payload under
+`/usr/lib/python3/dist-packages` in `soulsteads-agent-skillstore`, generates
+both `soulsteads-skillstore` and the `skillstore` compatibility alias, preserves
+the bundled skills and Hermes plugin, and smoke-tests extracted bytes with an
+isolated `HOME` and `PYTHONPATH`. The package depends on Python 3.11+ and
+PyYAML; its isolated CLI smoke test also requires the system Python `yaml`
+module (install Debian's `python3-yaml` when building locally). Git-backed skill
+commands are a Debian `Recommends`.
+
 ## Quickstart
 
 Publish and install a sample skill, then recover it without the registry.
