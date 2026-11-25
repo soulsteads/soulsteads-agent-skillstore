@@ -60,6 +60,11 @@ PyYAML; its isolated CLI smoke test also requires the system Python `yaml`
 module (install Debian's `python3-yaml` when building locally). Git-backed skill
 commands are a Debian `Recommends`.
 
+The Debian version is derived from the built wheel's release version. It
+preserves prerelease and epoch ordering; Python local version labels (such as
+`+local`) are not supported for Debian builds. Epochs appear as `%3a` in artifact
+filenames and `:` in package metadata.
+
 ## Quickstart
 
 Publish and install a sample skill, then recover it without the registry.

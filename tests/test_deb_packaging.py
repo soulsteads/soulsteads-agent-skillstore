@@ -4,7 +4,6 @@ import os
 from pathlib import Path
 import shutil
 import subprocess
-import tomllib
 
 import pytest
 
@@ -12,10 +11,6 @@ import pytest
 ROOT = Path(__file__).resolve().parents[1]
 BUILD = ROOT / "scripts" / "build-deb.sh"
 DPKG_DEB = os.environ.get("DPKG_DEB") or shutil.which("dpkg-deb")
-
-with (ROOT / "pyproject.toml").open("rb") as source:
-    VERSION = tomllib.load(source)["project"]["version"]
-
 
 @pytest.mark.skipif(not shutil.which("uv") or not DPKG_DEB, reason="requires uv and dpkg-deb")
 def test_builder_creates_a_self_contained_debian_payload(tmp_path):
@@ -36,11 +31,13 @@ def test_builder_creates_a_self_contained_debian_payload(tmp_path):
         timeout=180,
     )
     assert result.returncode == 0, result.stdout + result.stderr
-    packages = list(out_dir.glob(f"soulsteads-agent-skillstore_{VERSION}_all.deb"))
+    packages = list(out_dir.glob("soulsteads-agent-skillstore_*_all.deb"))
     assert len(packages) == 1
     control = subprocess.check_output([dpkg_deb, "-f", str(packages[0])], text=True)
     assert "Package: soulsteads-agent-skillstore" in control
-    assert f"Version: {VERSION}" in control
+    version = subprocess.check_output([dpkg_deb, "-f", str(packages[0]), "Version"], text=True).strip()
+    filename_version = version.replace(":", "%3a")
+    assert packages[0].name == f"soulsteads-agent-skillstore_{filename_version}_all.deb"
     assert "Maintainer: Soulsteads" in control.splitlines()
     assert "Depends: python3 (>= 3.11), python3-yaml (>= 6.0)" in control
     listing = subprocess.check_output([dpkg_deb, "-c", str(packages[0])], text=True)
