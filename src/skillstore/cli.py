@@ -97,12 +97,15 @@ def parser():
         q = target_parser(s, command)
         q.add_argument("name")
         q.add_argument("--version")
+        if command == "preview":
+            q.add_argument("--no-recover", action="store_true", help="refuse pending installation recovery")
     q = target_parser(s, "rollback")
     q.add_argument("name")
     q.add_argument("version")
     target_parser(s, "uninstall").add_argument("name")
     target_parser(s, "migrate-state")
-    target_parser(s, "status")
+    target_parser(s, "status").add_argument("--no-recover", action="store_true",
+                                           help="refuse pending installation recovery")
     target_parser(s, "session-begin").add_argument("label")
     target_parser(s, "session-end").add_argument("session")
     q=s.add_parser("propose"); q.add_argument("name"); q.add_argument("path"); q.add_argument("--base-version", required=True); q.add_argument("--rationale", required=True)
@@ -162,7 +165,7 @@ def execute(a):
         if not report["ok"]: raise UsageError("package validation failed", report=report)
         return report
     if target is not None:
-        if c=="status": return target.status()
+        if c=="status": return target.status(recover=not a.no_recover)
         if c=="rollback": return target.rollback(a.name,a.version)
         if c=="uninstall": return target.uninstall(a.name)
         if c=="migrate-state": return target.migrate_state()
@@ -198,7 +201,8 @@ def execute(a):
     if c=="review": return store.review(a.name,a.version,a.decision,actor,a.note)
     if c=="withdraw": return store.withdraw(a.name,a.version,actor,a.reason)
     if c=="diff": return store.diff(a.name,a.old,a.new)
-    if c in ("install","preview") and target is not None: return getattr(target,c)(store,a.name,a.version)
+    if c=="install" and target is not None: return target.install(store,a.name,a.version)
+    if c=="preview" and target is not None: return target.preview(store,a.name,a.version,recover=not a.no_recover)
     if c=="propose": return store.propose(pkg.pack(pkg.read_tree(a.path)),a.name,actor,a.rationale,a.base_version)
     if c=="proposals": return store.list_proposals(skill=a.name)
     if c=="proposal-diff": return store.proposal_diff(a.id)

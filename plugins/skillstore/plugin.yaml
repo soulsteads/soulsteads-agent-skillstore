@@ -1,0 +1,10 @@
+name: skillstore
+version: 0.1.0
+description: Search, preview, and install reviewed Skillstore releases in a Hermes profile.
+author: Soulsteads
+provides_tools:
+  - skillstore_search
+  - skillstore_inspect
+  - skillstore_preview
+  - skillstore_status
+  - skillstore_install

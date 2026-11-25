@@ -64,7 +64,7 @@ class Installation:
         return (info.st_dev, info.st_ino) if info else None
 
     @contextlib.contextmanager
-    def lock(self, *, create=True, migration=False):
+    def lock(self, *, create=True, migration=False, recover=True):
         meta, info = self._locate()
         if info is None:
             if not create:
@@ -90,7 +90,11 @@ class Installation:
         try:
             if self._identity(os.fstat(md)) != self._identity(info):
                 raise Conflict("Skillstore state changed while opening it; retry")
-            fd = os.open("lock", os.O_RDWR | os.O_CREAT | os.O_NOFOLLOW | os.O_NONBLOCK, 0o600, dir_fd=md)
+            access = os.O_RDWR | os.O_CREAT if recover else os.O_RDONLY
+            try:
+                fd = os.open("lock", access | os.O_NOFOLLOW | os.O_NONBLOCK, 0o600, dir_fd=md)
+            except FileNotFoundError:
+                raise Conflict("installation lock is missing; run regular status to check the target") from None
             try:
                 lock_info = os.fstat(fd)
                 if not stat.S_ISREG(lock_info.st_mode) or lock_info.st_nlink != 1:
@@ -101,7 +105,10 @@ class Installation:
                 if (bound_path != meta or self._identity(bound) != self._identity(info)
                         or self._identity(lock_path) != self._identity(lock_info)):
                     raise Conflict("Skillstore state moved while waiting for its lock; retry")
-                if not migration:
+                if not recover:
+                    if os.path.lexists(meta / "transaction.json"):
+                        raise Conflict("pending installation transaction; run regular status to recover it")
+                elif not migration:
                     self._recover()
                 yield meta
             finally:
@@ -240,8 +247,8 @@ class Installation:
         journal.unlink()
         pkg.sync_directory(meta)
 
-    def status(self):
-        with self.lock(create=False) as meta:
+    def status(self, *, recover=True):
+        with self.lock(create=False, recover=recover) as meta:
             state = self._state() if meta else {"installed": {}, "sessions": {}}
             rows = []
             for name, receipt in state["installed"].items():
@@ -256,12 +263,12 @@ class Installation:
                 result["removed"] = list(state["removed"].values())
             return result
 
-    def preview(self, store, name, version=None):
+    def preview(self, store, name, version=None, *, recover=True):
         release = store.release(name, version)
         files = pkg.unpack(store.package(name, release["version"]))
         pkg.verify_digest(files, release["digest"], "download")
         pkg.require_valid(files, name)
-        with self.lock(create=False) as meta:
+        with self.lock(create=False, recover=recover) as meta:
             old = self._state()["installed"].get(name) if meta else None
             self._clean(name, old)
             before = pkg.read_tree(self.root / name) if old else {}
