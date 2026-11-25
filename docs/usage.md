@@ -178,10 +178,11 @@ plugins:
 ```
 
 For a private registry, put `SKILLSTORE_TOKEN` in the profile's private `.env`,
-not in `config.yaml` or the URL. The plugin forwards this token only to
-registry commands configured with an HTTP(S) URL. Authenticated registries
-outside loopback require HTTPS. If the registry uses a private CA, set
-`SSL_CERT_FILE` to the absolute path to the CA bundle in the profile environment.
+not in `config.yaml` or the URL. The plugin resolves the token through Hermes
+for the active profile and forwards it only to registry commands configured
+with an HTTP(S) URL. Authenticated registries outside loopback require HTTPS.
+If the registry uses a private CA, set `SSL_CERT_FILE` to the absolute path to
+the CA bundle in the profile environment.
 
 Run these in the configured profile, replacing the example skill and version:
 

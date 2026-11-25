@@ -18,7 +18,7 @@ _OPERATIONS = {
     'status': ('Show managed Skillstore installations and local changes in the active Hermes profile.', (), ()),
 }
 _BASE_ENV = {'HOME', 'PATH', 'LANG', 'TMPDIR'}
-_REMOTE_ENV = {'SKILLSTORE_TOKEN', 'SSL_CERT_FILE', 'SSL_CERT_DIR'}
+_REMOTE_ENV = {'SSL_CERT_FILE', 'SSL_CERT_DIR'}
 _ERRORS = {
     2: 'Skillstore rejected the package.',
     3: 'Skillstore reported a conflict. Check local edits, unmanaged skills, sessions, or pending recovery.',
@@ -81,6 +81,16 @@ def _run(ctx, op, arguments):
         argv.extend([f'--version={arguments["version"]}', '--', arguments['name']])
     env = {key: value for key, value in os.environ.items()
            if key in _BASE_ENV or key.startswith('LC_') or (remote and key in _REMOTE_ENV)}
+    if remote:
+        from agent.secret_scope import UnscopedSecretError, get_secret
+
+        # Resolve credentials for this call, not for the gateway's launch profile.
+        try:
+            token = get_secret('SKILLSTORE_TOKEN')
+        except UnscopedSecretError:
+            raise ValueError('Skillstore could not resolve the active Hermes profile credential.') from None
+        if token:
+            env['SKILLSTORE_TOKEN'] = token
     try:
         result = subprocess.run(argv, stdin=subprocess.DEVNULL, capture_output=True, env=env,
                                 encoding='utf-8', timeout=120)
