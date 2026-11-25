@@ -150,6 +150,68 @@ agent's host for installation, contributions, and local backups. With
 network MCP, omitting `version` from `skillstore_inspect` returns the latest
 reviewed release; it does not list draft or withdrawn versions.
 
+### Native Hermes Skillstore plugin
+
+Use the native plugin for catalog search, exact-version inspection and preview,
+installation, and local status without an MCP server. Install Skillstore from
+the same revision as the plugin. Copy [`plugins/skillstore`](../plugins/skillstore)
+into the selected Hermes profile as `<HERMES_HOME>/plugins/skillstore`. The
+wheel bundles the same directory at `skillstore/hermes_plugins/skillstore`
+in its Python installation. Use Hermes' default in-process plugin mode for the
+terminal commands below.
+
+Merge these settings into that profile's `config.yaml`, keeping any existing
+enabled plugins. Use the actual absolute path to the installed executable and
+the path to an existing local registry or the base URL of a trusted registry
+served by `soulsteads-skillstore serve` (not a `/mcp` endpoint):
+
+```yaml
+plugins:
+  enabled:
+    - skillstore
+  entries:
+    skillstore:
+      settings:
+        executable: /opt/skillstore/bin/soulsteads-skillstore
+        store: https://skills.example.org
+        agent_install: false
+```
+
+For a private registry, put `SKILLSTORE_TOKEN` in the profile's private `.env`,
+not in `config.yaml` or the URL. The plugin forwards this token only to
+registry commands configured with an HTTP(S) URL. Authenticated registries
+outside loopback require HTTPS. If the registry uses a private CA, set
+`SSL_CERT_FILE` to the absolute path to the CA bundle in the profile environment.
+
+Run these in the configured profile, replacing the example skill and version:
+
+```sh
+hermes skillstore search demo-skill
+hermes skillstore inspect demo-skill 1.0.0
+hermes skillstore preview demo-skill 1.0.0
+hermes skillstore install demo-skill 1.0.0
+hermes skillstore status
+```
+
+The plugin targets only the active profile's `skills` directory. Installation
+requires a reviewed version and refuses unmanaged copies, local edits, or active
+sessions registered with Skillstore. Stop other sessions that use the skills
+before replacing them; start a new Hermes session to pick up installed skills.
+`status` works offline. The plugin's `status` and `preview` refuse pending
+installation recovery rather than changing the profile. If recovery is needed,
+run `soulsteads-skillstore status --harness hermes --scope profile --root /path/to/hermes-profile`
+directly, using the actual profile directory.
+
+A new Hermes session can use `skillstore_search`, `skillstore_inspect`,
+`skillstore_preview`, and `skillstore_status`. Installation from the terminal
+does not require agent access. To expose `skillstore_install` to the agent as
+well, set `agent_install: true` and start a new session. A model can then
+install a reviewed version without a separate confirmation from this plugin.
+The manifest lists this optional tool, so Plugin Doctor may warn that it was
+not registered under default settings. Use the [backup plugin](#native-hermes-backup-plugin)
+for private backups or [stdio MCP](#mcp) for contributions. Do not expose both
+the native and MCP catalog tools to the same agent unless you want both surfaces.
+
 ### Hermes with a remote registry and local backups
 
 On the **agent host**, install `soulsteads-skillstore` and select the active Hermes

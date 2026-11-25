@@ -54,7 +54,7 @@ scripts/build-deb.sh --out-dir ./dist/debian
 The command builds the wheel from source, installs its payload under
 `/usr/lib/python3/dist-packages` in `soulsteads-agent-skillstore`, generates
 both `soulsteads-skillstore` and the `skillstore` compatibility alias, preserves
-the bundled skills and Hermes plugin, and smoke-tests extracted bytes with an
+the bundled skills and Hermes plugins, and smoke-tests extracted bytes with an
 isolated `HOME` and `PYTHONPATH`. The package depends on Python 3.11+ and
 PyYAML; its isolated CLI smoke test also requires the system Python `yaml`
 module (install Debian's `python3-yaml` when building locally). Git-backed skill
@@ -130,7 +130,9 @@ Only the active copy is installed in the skill root.
 - [Connect over Streamable HTTP](docs/usage.md#connect-directly-over-streamable-http) for authenticated, read-only catalog access.
   Skillstore does not edit native configuration or grant execution permissions.
 - [Connect Hermes to a shared registry](docs/usage.md#hermes-with-a-remote-registry-and-local-backups)
-  and enable private skills-only backups on the agent host.
+  over stdio MCP and enable private skills-only backups on the agent host.
+- [Use the native Hermes Skillstore plugin](docs/usage.md#native-hermes-skillstore-plugin)
+  to find, preview, and install reviewed skills without MCP.
 - [Submit skill updates through MCP](docs/usage.md#contribute-a-skill-through-mcp)
   from an explicitly configured staging directory. Approval stays separate.
 - [Track skills from Git](docs/usage.md#track-skills-from-git) using an offline
