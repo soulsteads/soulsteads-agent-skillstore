@@ -1,6 +1,7 @@
 import argparse
 import importlib.util
 import json
+import os
 from pathlib import Path
 import sys
 from types import ModuleType
@@ -136,7 +137,6 @@ def test_native_preview_and_status_do_not_recover_interrupted_install(fixture, m
     store.review('demo-skill', '2.0.0', 'approve', make_actor('reviewer'), 'Reviewed update')
     target = Installation(profile / 'skills')
     target.install(store, 'demo-skill', '1.0.0')
-    import os
     replace = os.replace
 
     def interrupt(source, dest, *args, **kwargs):
@@ -157,7 +157,23 @@ def test_native_preview_and_status_do_not_recover_interrupted_install(fixture, m
     assert target.status()['installed'][0]['version'] == '2.0.0'
 
 
-def test_remote_native_search_uses_profile_token_and_revocation(fixture, monkeypatch):
+class UnscopedSecretError(RuntimeError):
+    pass
+
+
+@pytest.fixture
+def secret_scope(monkeypatch):
+    # The test suite does not require Hermes. Stub only its secret API;
+    # the plugin, CLI subprocess and private registry are real.
+    module = ModuleType('agent.secret_scope')
+    setattr(module, 'get_secret', os.getenv)
+    setattr(module, 'UnscopedSecretError', UnscopedSecretError)
+    monkeypatch.setitem(sys.modules, 'agent.secret_scope', module)
+    return module
+
+
+@pytest.mark.parametrize('routed', [False, True], ids=['single-profile', 'routed-profile'])
+def test_remote_native_search_uses_profile_token_and_revocation(fixture, monkeypatch, secret_scope, routed):
     plugin, ctx, _ = fixture
     root = ctx.settings['store']
     token = add_token(root, 'demo-agent', 'agent')
@@ -169,13 +185,38 @@ def test_remote_native_search_uses_profile_token_and_revocation(fixture, monkeyp
             plugin.register(ctx)
             monkeypatch.delenv('SKILLSTORE_TOKEN', raising=False)
             assert 'denied' in ctx.call('search')['error']
-            monkeypatch.setenv('SKILLSTORE_TOKEN', token)
-            assert ctx.call('search')[0]['latest_reviewed'] == '1.0.0'
+            if routed:
+                profile_secrets = {'SKILLSTORE_TOKEN': token}
+                monkeypatch.setattr(secret_scope, 'get_secret', profile_secrets.get)
+            else:
+                monkeypatch.setenv('SKILLSTORE_TOKEN', token)
+            result = ctx.call('search')
+            assert isinstance(result, list), result
+            assert result[0]['latest_reviewed'] == '1.0.0'
             revoke_tokens(root, 'demo-agent')
             assert 'denied' in ctx.call('search')['error']
         finally:
             server.shutdown()
             thread.join(timeout=5)
+
+
+def test_unbound_profile_refuses_remote_calls_but_allows_local_operations(fixture, monkeypatch, secret_scope):
+    plugin, ctx, _ = fixture
+
+    def unbound(_name):
+        raise UnscopedSecretError('internal detail')
+
+    monkeypatch.setattr(secret_scope, 'get_secret', unbound)
+    plugin.register(ctx)
+    assert ctx.call('search')[0]['name'] == 'demo-skill'
+    ctx.settings['store'] = 'https://example.invalid'
+    assert ctx.call('status')['installed'] == []
+
+    def unexpected_subprocess(*args, **kwargs):
+        pytest.fail('An unbound secret lookup must not start a remote command')
+
+    monkeypatch.setattr(plugin.subprocess, 'run', unexpected_subprocess)
+    assert ctx.call('search') == {'error': 'Skillstore could not resolve the active Hermes profile credential.'}
 
 
 @pytest.mark.parametrize('shape', ['userinfo', 'query', 'fragment'])
